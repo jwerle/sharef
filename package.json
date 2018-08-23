@@ -1,6 +1,6 @@
 {
   "name": "sharef",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Quickly share a file over HTTP",
   "main": "index.js",
   "scripts": {
