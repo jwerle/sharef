@@ -13,6 +13,12 @@
   "bin": {
     "sharef": "bin/sharef"
   },
+  "files": [
+    "bin/sharef",
+    "index.js",
+    "LICENSE",
+    "README.md"
+  ],
   "keywords": [
     "http",
     "share",
