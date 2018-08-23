@@ -1,0 +1,102 @@
+#!/usr/bin/env node
+
+const program = require('yargs')
+const debug = require('debug')('sharef')
+const chalk = require('chalk')
+const share = require('../')
+const ip = require('internal-ip')
+
+const { PORT = 8000 } = process.env
+
+const { argv } = program
+  .usage('usage: sharef [-hDV] [options] <pathspec>')
+  .option('h', {
+    type: 'boolean',
+    alias: 'help',
+    describe: 'Show help usage'
+  })
+  .option('V', {
+    type: 'boolean',
+    alias: 'version',
+    describe: 'Show program version'
+  })
+  .option('D', {
+    type: 'boolean',
+    alias: 'debug',
+    default: false,
+    describe: 'Enable debug output'
+  })
+  .option('p', {
+    type: 'number',
+    alias: 'port',
+    default: PORT,
+    describe: 'Port for HTTP server to listen on'
+  })
+  .option('m', {
+    type: 'number',
+    alias: 'max',
+    default: Infinity,
+    describe: 'Max shares before exiting',
+  })
+
+if (true === argv.debug) {
+  require('debug').enable('sharef*')
+  debug('Debug output enabled')
+}
+
+const { port, max } = argv
+const [ file ] = argv._
+const server = share(file, { port })
+const id = server.id.toString('hex')
+
+let shares = 0
+
+info(`Sharing file: ${file}`)
+info(`Server Port: ${port}`)
+info(`Server ID: /${id}`)
+
+server.on('share', onshare)
+server.on('error', onerror)
+
+ip.v4().then(onip).catch(onerror)
+
+function onip(address) {
+  info(`Share IP: ${address}`)
+  info(`Share URL: http://${address}:${port}/${id}`)
+}
+
+function onshare(req) {
+  info('New share:', req)
+
+  if (++shares >= max) {
+    warn('Maximum shares reached. Closing server.')
+    server.close(onclose)
+  }
+
+  if (shares !== Infinity) {
+    warn(max - shares, 'shares before this process will die')
+  }
+}
+
+function onclose() {
+  process.nextTick(() => {
+    warn('Exiting...')
+    process.exit(0)
+  })
+}
+
+function onerror(err) {
+  error(err)
+}
+
+function info(...messages) {
+  console.log(chalk`{blue.bold  info}`, ...messages)
+}
+
+function warn(...messages) {
+  console.error(chalk`{yellow.bold  warn}: %s`, ...messages)
+}
+
+function error(err) {
+  console.error(chalk`{red.bold error}: %s`, err.message)
+}
