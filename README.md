@@ -1,7 +1,7 @@
 sharef
 ======
 
-Quickly share a file over HTTP.
+Quickly share a file over HTTP, DAT, and Hypercore.
 
 ## Installation
 
@@ -23,7 +23,6 @@ interface or a string that resolves to
 `sharef` describes the following command line usage.
 
 ```sh
-usage: sharef [-hDV] [options] <pathspec>
 usage: sharef [-hDV] [options] <pathspec>
 
 Options:
