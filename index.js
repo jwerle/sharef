@@ -1,9 +1,20 @@
+const hyperdiscovery = require('hyperdiscovery')
 const randomBytes = require('randombytes')
+const { extname } = require('path')
+const { blake2b } = require('hypercore-crypto')
+const hyperdrive = require('hyperdrive')
+const hypercore = require('hypercore')
+const hyperhttp = require('hyperdrive-http')
 const toRegExp = require('path-to-regexp')
+const corsify = require('corsify')
 const debug = require('debug')('sharef')
 const range = require('range-parser')
 const fetch = require('got')
+const mime = require('mime')
 const http = require('http')
+const pump = require('pump')
+const ras = require('random-access-stream')
+const ram = require('random-access-memory')
 const raf = require('random-access-file')
 const rah = require('random-access-http')
 const url = require('url')
@@ -27,9 +38,8 @@ module.exports = share
  */
 function share(storage, opts) {
   const { port } = opts
-  const server = http.createServer(onrequest)
+  const server = http.createServer(corsify(onrequest))
   const src = storage
-  const id = randomBytes(4)
 
   let isHTTPStorage = false
 
@@ -42,6 +52,8 @@ function share(storage, opts) {
 
     if ('http:' === protocol || 'https:' === protocol) {
       storage = rah(href)
+      storage._stat = stathttp(href)
+      storage.statable = true
       isHTTPStorage = true
     } else {
       try {
@@ -55,79 +67,141 @@ function share(storage, opts) {
     }
   }
 
-  server.id = id
-  server.route = toRegExp(`/${toHex(id)}`)
+  server.discovery = null
+  server.closed = false
+  server.drive = hyperdrive(ram, opts)
+  server.feed = hypercore(ram, opts)
+
   server.listen(opts.port, onlisten)
+  server.on('close', onclose)
+
+  server.feed.ready(() => {
+    server.route = toRegExp(`/${toHex(server.feed.key)}`)
+    server.id = server.feed.key
+
+    server.swarm = hyperdiscovery(server.feed, { port: 0 })
+    server.swarm.on('peer', onpeer)
+    server.swarm.on('error', (err) => {
+      server.emit('error', err)
+    })
+
+    pump(
+      ras(storage),
+      server.feed.createWriteStream(),
+      onpump
+    )
+
+    server.drive.ready(() => {
+      server.discovery = hyperdiscovery(server.drive)
+      server.discovery.on('peer', onpeer)
+      server.discovery.on('error', (err) => {
+        server.emit('error', err)
+      })
+
+      pump(
+        ras(storage),
+        server.drive.createWriteStream(toHex(server.id)),
+        onpump
+      )
+
+      server.emit('ready')
+    })
+  })
 
   return server
+
+  function onclose() {
+    server.closed = true
+    server.drive.close()
+    server.swarm.close()
+    server.discovery.close()
+  }
+
+  function onpeer(peer, info) {
+    server.emit('peer', peer, info)
+  }
+
+  function onpump(err) {
+    if (err) {
+      server.emit('error', err)
+    }
+  }
 
   function onlisten() {
     debug('onlisten:', server.address())
   }
 
   function onrequest(req, res) {
-    debug('onrequest: %s', req.url)
-
     const [ host ] = req.headers.host.split(':')
     const info = { host, port }
 
+    let uri = req.url.split('?')[0]
+    const ext = extname(uri)
+
+    debug('onrequest: %s: %s', req.method, req.url)
+
+    uri = uri.replace(ext, '')
+
+    req.uri = uri
+    req.url = `/${toHex(server.id)}`
+    req.extname = ext
+
+    let totalRead = 0
+    let ended = false
+
     res.statusCode = 200
 
-    if (false === server.route.test(req.url)) {
+    if (false === server.route.test(uri)) {
       res.statusCode = 404
       res.end()
       return
     }
 
-    if (isHTTPStorage) {
-      fetch(src, { method: 'HEAD' })
-        .then((res) => onhead(null, res))
-        .catch(onerror)
-    } else if (storage.statable) {
-      storage.stat(onstat)
+    const originalSetHeader = res.setHeader.bind(res)
+    res.setHeader = setHeader
+    res.on('finish', onend)
+
+    hyperhttp(server.drive, { exposeHeaders: true })(req, res)
+
+    function setHeader(key, val) {
+      if ('content-type' === key.toLowerCase()) {
+        originalSetHeader('Content-Type', mime.getType(req.extname))
+      } else {
+        originalSetHeader(key, val)
+      }
     }
+
+    server.emit(req.method.toLowerCase(), info)
 
     function onerror(err) {
       debug('onerror:', err)
       res.statusCode = 500
-      res.end()
+      res.end(err.message)
     }
 
-    function onhead(err, head) {
-      if (err) {
-        onerror(err)
-        return
-      }
-
-      onstat(null, { size: head.headers['content-length'] })
-    }
-
-    function onstat(err, stat) {
-      if (err) {
-        onerror(err)
-        return
-      }
-
-      res.setHeader('Content-Length', stat.size)
-
-      if (req.headers.range) {
-        const r = range(stat.size, req.headers.range)
-        if (r && r[0]) {
-          storage.read(r[0].start, r[0].end, onread)
-        }
-      } else {
-        storage.read(0, stat.size, onread)
-      }
-    }
-
-    function onread(err, buf) {
-      if (err) {
-        onerror(err)
-        return
-      }
-
-      res.end(buf)
+    function onend() {
+      debug('onend:')
+      ended = true
       server.emit('share', info)
+    }
+  }
+}
+
+function stathttp(uri) {
+  return function stat(req) {
+    fetch(uri, { method: 'HEAD' })
+      .then(onresponse)
+      .catch(onerror)
+
+    function onerror(err) {
+      req.callback(err)
+    }
+
+    function onresponse(res) {
+      return req.callback(null, {
+        size: res.headers['content-length'],
+        mtime: res.headers['last-modified'],
+      })
     }
   }
 }
