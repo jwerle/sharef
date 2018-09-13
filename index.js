@@ -71,6 +71,7 @@ function share(storage, opts) {
   server.closed = false
   server.drive = hyperdrive(ram, opts)
   server.feed = hypercore(ram, opts)
+  server.src = src
 
   server.listen(opts.port, onlisten)
   server.on('close', onclose)
@@ -103,6 +104,14 @@ function share(storage, opts) {
         server.drive.createWriteStream(toHex(server.id)),
         onpump
       )
+
+      if ('string' === typeof src) {
+        pump(
+          ras(storage),
+          server.drive.createWriteStream(src),
+          onpump
+        )
+      }
 
       server.emit('ready')
     })
@@ -140,8 +149,6 @@ function share(storage, opts) {
 
     debug('onrequest: %s: %s', req.method, req.url)
 
-    uri = uri.replace(ext, '')
-
     req.uri = uri
     req.url = `/${toHex(server.id)}`
     req.extname = ext
@@ -152,32 +159,20 @@ function share(storage, opts) {
     res.statusCode = 200
 
     if (false === server.route.test(uri)) {
-      res.statusCode = 404
-      res.end()
-      return
-    }
-
-    const originalSetHeader = res.setHeader.bind(res)
-    res.setHeader = setHeader
-    res.on('finish', onend)
-
-    hyperhttp(server.drive, { exposeHeaders: true })(req, res)
-
-    function setHeader(key, val) {
-      if ('content-type' === key.toLowerCase()) {
-        originalSetHeader('Content-Type', mime.getType(req.extname))
-      } else {
-        originalSetHeader(key, val)
+      if ( !src ||
+        ('string' === typeof src && !toRegExp(`/${src}`).test(uri))
+      ) {
+        res.statusCode = 404
+        res.end()
+        return
       }
     }
 
-    server.emit(req.method.toLowerCase(), info)
+    res.on('finish', onend)
 
-    function onerror(err) {
-      debug('onerror:', err)
-      res.statusCode = 500
-      res.end(err.message)
-    }
+    hyperhttp(server.drive)(req, res)
+
+    server.emit(req.method.toLowerCase(), info)
 
     function onend() {
       debug('onend:')
@@ -201,6 +196,9 @@ function stathttp(uri) {
       return req.callback(null, {
         size: res.headers['content-length'],
         mtime: res.headers['last-modified'],
+
+        isDirectory() { return false },
+        isFile() { return true },
       })
     }
   }
