@@ -1,6 +1,6 @@
+const { basename, extname } = require('path')
 const hyperdiscovery = require('hyperdiscovery')
 const randomBytes = require('randombytes')
-const { extname } = require('path')
 const { blake2b } = require('hypercore-crypto')
 const hyperdrive = require('hyperdrive')
 const hypercore = require('hypercore')
@@ -39,7 +39,7 @@ module.exports = share
 function share(storage, opts) {
   const { port } = opts
   const server = http.createServer(corsify(onrequest))
-  const src = storage
+  const src = 'string' === typeof storage ? basename(storage) : storage
 
   let isHTTPStorage = false
 
