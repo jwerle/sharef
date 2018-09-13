@@ -67,8 +67,13 @@ function onready() {
 
 function onip(address) {
   info(`IP: ${address}`)
-  info(`HTTP Server URL: http://${address}:${port}/${server.id.toString('hex')}`)
   info(`HTTP Server Port: ${port}`)
+  info(`HTTP Server URL: http://${address}:${port}/${server.id.toString('hex')}`)
+
+  if ('string' === typeof server.src) {
+    info(`HTTP Server URL: http://${address}:${port}/${server.src}`)
+  }
+
   server.drive.ready(ondatready)
 }
 
