@@ -105,6 +105,10 @@ function share(storage, opts) {
         onpump
       )
 
+      server.drive.writeFile('dat.json', Buffer.from(JSON.stringify({
+        title: 'string' === typeof src ? src : null
+      })))
+
       server.emit('ready')
     })
   })
