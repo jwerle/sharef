@@ -108,7 +108,7 @@ function share(storage, opts) {
       if ('string' === typeof src) {
         pump(
           ras(storage),
-          server.drive.createWriteStream(src)
+          server.drive.createWriteStream(src),
           onpump
         )
       }
