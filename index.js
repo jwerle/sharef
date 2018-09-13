@@ -108,7 +108,7 @@ function share(storage, opts) {
       if ('string' === typeof src) {
         pump(
           ras(storage),
-          server.drive.createWriteStream(src),
+          server.drive.createWriteStream(src)
           onpump
         )
       }
@@ -165,6 +165,9 @@ function share(storage, opts) {
         res.statusCode = 404
         res.end()
         return
+      } else {
+        req.uri = req.url
+        uri = req.uri
       }
     }
 
